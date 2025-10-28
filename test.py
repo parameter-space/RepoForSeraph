@@ -4,7 +4,6 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
 import numpy as np
-import pandas as pd
 import time
 from torch.utils.data import default_collate
 import torch.nn.functional as F
@@ -13,11 +12,12 @@ import torch.nn.functional as F
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
+task4_results_list = []
 
 # --- 1. [과제 3] CIFAR-100 학습 ---
 
 print()
-print("====================CIFAR-100 VGG Training====================")
+print("====================[Task 3] : CIFAR-100 VGG Training====================")
 
 class VGG_Task3(nn.Module):
   def __init__(self):
@@ -106,22 +106,21 @@ mean_c100 = images_c100.mean(dim = [0, 2, 3])
 std_c100 = images_c100.std(dim = [0, 2, 3])
 print(f"CIFAR-100 Mean: {mean_c100}, Std: {std_c100}")
 
-transform_train_c100 = transforms.Compose([
+transform_train_c100_with_norm = transforms.Compose([
     transforms.Pad(4),
     transforms.RandomHorizontalFlip(),
     transforms.RandomCrop(32),
     transforms.ToTensor(),
     transforms.Normalize(tuple(mean_c100), tuple(std_c100))
 ])
-transform_test_c100 = transforms.Compose([
+transform_test_c100_with_norm = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(tuple(mean_c100), tuple(std_c100))
 ])
 
-train_dataset_c100.transform = transform_train_c100
-test_dataset_c100.transform = transform_test_c100
+train_dataset_c100.transform = transform_train_c100_with_norm
+test_dataset_c100.transform = transform_test_c100_with_norm
 
-# 6. 최종 학습용 데이터로더 생성
 train_loader_c100 = torch.utils.data.DataLoader(
     dataset=train_dataset_c100, batch_size=100, shuffle=True
 )
@@ -129,9 +128,8 @@ test_loader_c100 = torch.utils.data.DataLoader(
     dataset=test_dataset_c100, batch_size=100, shuffle=False
 )
 
-# 과제 3 실행
 num_epochs_task3 = 2
-learning_rate_task3 = 0.001 # 원본 코드의 learning_rate 값 사용
+learning_rate_task3 = 0.001 
 
 model_task3 = VGG_Task3().to(device)
 criterion_task3 = nn.CrossEntropyLoss()
@@ -145,14 +143,14 @@ for epoch in range(num_epochs_task3):
 print("Task 3 (CIFAR-100) finished.")
 
 
-# --- 2. [과제 1, 2, 4] CIFAR-10 하이퍼파라미터 튜닝 ---
-
 print()
-print("====================CIFAR-10 Hyperparameter Tuning====================")
+print("====================[Task 1, 2, 4] : CIFAR-10 Hyperparameter Tuning====================")
+
 
 cfg = {
-    'VGG16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    'VGG_Custom_Test': [64, 'M', 128, 'M', 256, 'M']
+    'VGG_Small': [64, 'M', 128, 'M'],
+    'VGG_Base': [64, 'M', 128, 'M', 256, 'M'],
+    'VGG_Large': [128, 'M', 256, 'M', 512, 'M']
 }
 
 class VGG(nn.Module):
@@ -349,8 +347,6 @@ def test_v_lib(model, test_loader, device):
     print(f'Task 4 - Accuracy of the model on the test images: {val_acc:.2f} %')
     return val_acc
 
-results_df = pd.DataFrame(columns=['Experiment', 'Params', 'Total_Time_sec', 'Best_Val_Acc'])
-
 def run_experiment(config, experiment_name):
     print()
     print(f"==================== Task 4 Sub-Experiment: [{experiment_name}] ====================")
@@ -398,25 +394,46 @@ def run_experiment(config, experiment_name):
             
     print(f"--- Best Val Acc: {best_val_acc:.2f}% ---")
     
-    global results_df
-    new_row = {'Experiment': experiment_name, 
-               'Params': param_count, 
-               'Total_Time_sec': total_train_time, 
-               'Best_Val_Acc': best_val_acc}
-    results_df = pd.concat([results_df, pd.DataFrame([new_row])], ignore_index=True)
+    global task4_results_list
+    new_result = {'Experiment': experiment_name, 
+                  'Params': param_count, 
+                  'Total_Time_sec': total_train_time, 
+                  'Best_Val_Acc': best_val_acc}
+    task4_results_list.append(new_result)
 
-BASE_EPOCHS = 2
+
+BASE_EPOCHS = 10
 BASE_LR = 0.01
 BASE_BATCH_SIZE = 128
-BASE_MODEL_CFG = 'VGG_Custom_Test'
+BASE_MODEL_CFG = 'VGG_Base'
+
 
 experiment_configs = [
+    # 1. Baseline
     { 'name': 'Baseline (Crop 32, Stride 2)',
       'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 32,
                   'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
                   'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+    
+    # 2. 구조 튜닝 (Pool Stride)
     { 'name': 'Struct: Pool Stride 1',
       'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 1, 'crop_size': 32,
+                  'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
+                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+    
+    # 3. 구조 튜닝 (채널 수)
+    { 'name': 'Struct: VGG_Small (64-128)',
+      'config': { 'model_cfg': 'VGG_Small', 'pool_stride': 2, 'crop_size': 32,
+                  'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
+                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+    { 'name': 'Struct: VGG_Large (128-256-512)',
+      'config': { 'model_cfg': 'VGG_Large', 'pool_stride': 2, 'crop_size': 32,
+                  'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
+                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+
+    # 4. 전처리 튜닝 (Crop Size)
+    { 'name': 'Preproc: RandomCrop 20',
+      'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 20,
                   'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
                   'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
     { 'name': 'Preproc: RandomCrop 24',
@@ -427,25 +444,34 @@ experiment_configs = [
       'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 28,
                   'batch_size': BASE_BATCH_SIZE, 'use_cutmix': False,
                   'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+
+    # 5. 학습 기법 튜닝 (CutMix)
     { 'name': 'Method: CutMix (ON) + Crop 32',
       'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 32,
                   'batch_size': BASE_BATCH_SIZE, 'use_cutmix': True,
                   'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+    
+    # 6. 병행 튜닝 (CutMix + Crop)
     { 'name': 'Method: CutMix (ON) + Crop 28',
       'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 28,
                   'batch_size': BASE_BATCH_SIZE, 'use_cutmix': True,
-                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR }
-    }
+                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } },
+    { 'name': 'Method: CutMix (ON) + Crop 20',
+      'config': { 'model_cfg': BASE_MODEL_CFG, 'pool_stride': 2, 'crop_size': 20,
+                  'batch_size': BASE_BATCH_SIZE, 'use_cutmix': True,
+                  'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } }
 ]
 
-# 과제 4 실행
 for exp in experiment_configs:
     run_experiment(config=exp['config'], experiment_name=exp['name'])
 
 print()
 print("==================== 모든 실험 종료 ====================")
 
-# 과제 4 결과 CSV 파일로 저장
-output_filename = 'lab7_experiment_results.csv'
-results_df.to_csv(output_filename, index=False)
-print(f"Task 4 (CIFAR-10) 결과를 {output_filename} 에 저장")
+print()
+print("==================== Task 4 (CIFAR-10) 최종 실험 요약 ====================")
+print(f"{'Experiment':<40} | {'Params':>12} | {'Time (sec)':>12} | {'Best Val Acc (%)':>18}")
+print("------------------------------------------------------------")
+for res in task4_results_list:
+    print(f"{res['Experiment']:<40} | {res['Params']:>12,} | {res['Total_Time_sec']:>12.2f} | {res['Best_Val_Acc']:>18.2f}")
+print("============================================================")
