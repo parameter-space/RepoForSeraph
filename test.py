@@ -13,12 +13,19 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 task4_results_list = []
+best_overall_acc = 0.0
+best_experiment_name = ""
 
-# --- 1. [과제 3] CIFAR-100 학습 ---
+# 과제 1, 2, 4번을 묶어서 하나의 테스크고 진행하고, 과제 3은 따로 진행함.
+# seraph 서버를 사용하여 학습하였기 때문에 ipynb를 사용할 수 없어 주석을 통해 문제를 구분.
+# 첨부된 log 파일은 코드의 실행결과, 분석은 log파일을 이미 숙지했다는 상태로 pdf에서 진행.
+
+# ---------- 1. [과제 3] CIFAR-100 학습 ----------
 
 print()
 print("====================[Task 3] : CIFAR-100 VGG Training====================")
 
+# 모델 생성 및 trian, test함수 설정
 class VGG_Task3(nn.Module):
   def __init__(self):
     super(VGG_Task3, self).__init__()
@@ -77,6 +84,8 @@ def test_task3(model, test_loader):
 
   print('Task 3 - Accuracy of the model on the test images: {} %'.format(100 * correct / total))
 
+# 데이터 경로 설정 후 데이터 로딩 및 정규화
+
 cifar100_datapath = '/local_datasets/cifar_data_100'
 
 transform_train_c100_simple = transforms.Compose([
@@ -128,7 +137,9 @@ test_loader_c100 = torch.utils.data.DataLoader(
     dataset=test_dataset_c100, batch_size=100, shuffle=False
 )
 
-num_epochs_task3 = 2
+# Task 3 학습 수행
+
+num_epochs_task3 = 20
 learning_rate_task3 = 0.001 
 
 model_task3 = VGG_Task3().to(device)
@@ -142,16 +153,21 @@ for epoch in range(num_epochs_task3):
 
 print("Task 3 (CIFAR-100) finished.")
 
+# ---------- 1. [과제 1, 2, 4] CIFAR-10 학습 하이퍼파라미터 튜닝 ----------
 
 print()
 print("====================[Task 1, 2, 4] : CIFAR-10 Hyperparameter Tuning====================")
 
+# 모델 설계 및 cutMix 함수 정의
+# cfg = 모델 구조 설정 변수, count_parameters = 파라미터 갯수 반환 함수, 
 
 cfg = {
     'VGG_Small': [64, 'M', 128, 'M'],
     'VGG_Base': [64, 'M', 128, 'M', 256, 'M'],
     'VGG_Large': [128, 'M', 256, 'M', 512, 'M']
 }
+
+
 
 class VGG(nn.Module):
     def __init__(self, vgg_cfg_name, pool_stride=2):
@@ -226,7 +242,9 @@ def cutmix_data(x, y, alpha=1.0, num_classes=10):
     new_y = y_a * lam + y_b * (1. - lam)
     return x_cut, new_y
 
-NUM_CLASSES = 10 
+# cutMix 구현을 위한 클래스 갯수 및 alpha값 조정
+
+NUM_CLASSES = 10
 CUTMIX_ALPHA = 1.0
 
 def cutmix_collate_fn(batch):
@@ -236,6 +254,8 @@ def cutmix_collate_fn(batch):
                                  alpha=CUTMIX_ALPHA, 
                                  num_classes=NUM_CLASSES)
     return images, labels
+
+# 데이터 로더 설정 및 정규화
 
 def get_loaders(crop_size = 32, batch_size = 100, use_cutmix = False):
     
@@ -302,6 +322,8 @@ def get_loaders(crop_size = 32, batch_size = 100, use_cutmix = False):
 
     return train_loader, test_loader
 
+# trian, test 함수 설정
+
 def train_v_lib(model, train_loader, optimizer, criterion, device, epoch, num_epochs, total_step):
     model.train()
     train_loss = 0
@@ -346,6 +368,8 @@ def test_v_lib(model, test_loader, device):
     val_acc = 100 * correct / total
     print(f'Task 4 - Accuracy of the model on the test images: {val_acc:.2f} %')
     return val_acc
+
+# Task [1, 2, 4] 실험 진행용 함수 구성
 
 def run_experiment(config, experiment_name):
     print()
@@ -394,15 +418,21 @@ def run_experiment(config, experiment_name):
             
     print(f"--- Best Val Acc: {best_val_acc:.2f}% ---")
     
-    global task4_results_list
+    global task4_results_list, best_overall_acc, best_experiment_name
+    
     new_result = {'Experiment': experiment_name, 
                   'Params': param_count, 
                   'Total_Time_sec': total_train_time, 
                   'Best_Val_Acc': best_val_acc}
     task4_results_list.append(new_result)
 
+    if best_val_acc > best_overall_acc:
+        best_overall_acc = best_val_acc
+        best_experiment_name = experiment_name
 
-BASE_EPOCHS = 10
+# experiment_configs = 하이퍼파라미터를 변환하면서 테스트하기 위한 설정 변수
+
+BASE_EPOCHS = 15
 BASE_LR = 0.01
 BASE_BATCH_SIZE = 128
 BASE_MODEL_CFG = 'VGG_Base'
@@ -462,6 +492,8 @@ experiment_configs = [
                   'epochs': BASE_EPOCHS, 'learning_rate': BASE_LR } }
 ]
 
+# 실제 학습 수행
+
 for exp in experiment_configs:
     run_experiment(config=exp['config'], experiment_name=exp['name'])
 
@@ -474,4 +506,11 @@ print(f"{'Experiment':<40} | {'Params':>12} | {'Time (sec)':>12} | {'Best Val Ac
 print("------------------------------------------------------------")
 for res in task4_results_list:
     print(f"{res['Experiment']:<40} | {res['Params']:>12,} | {res['Total_Time_sec']:>12.2f} | {res['Best_Val_Acc']:>18.2f}")
+print("============================================================")
+
+print()
+print("==================== 최적 조합 요약 ====================")
+print(f" - 총 {len(task4_results_list)}개의 조합 중, 가장 높은 Validation Accuracy를 달성한 설정은:")
+print(f" - 실험명: {best_experiment_name}")
+print(f" - 성능: {best_overall_acc:.2f} %")
 print("============================================================")
